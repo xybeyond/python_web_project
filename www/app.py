@@ -16,36 +16,40 @@ import logging; logging.basicConfig(level=logging.INFO)
 
 import asyncio, os, json, time
 from datetime import datetime
-
-#使用 pip3 install aiohttp 安装aiohttp
+'''
+    使用 pip3 install aiohttp 安装aiohttp
+'''
 from aiohttp import web
 
-#url处理函数，通过下面的add_route方法与服务器代码相连
-#Response函数的body参数对应网页的代码
-#看着这个简单，但是后面大部分不过是在这个框架上加更多的细节，
-#譬如把add_route封装等等的方法，后面遇见复杂的情形应该再回来
-#看看
+'''
+url处理函数，通过下面的add_route方法与服务器代码相连
+Response函数的body参数对应网页的代码
+看着这个简单，但是后面大部分不过是在这个框架上加更多的细节，
+譬如把add_route封装等等的方法，后面遇见复杂的情形应该再回来
+看看
 
-#问题:访问网址提示下载文件
-#原因:不指定 content_type 的话，默认返回 application/octet-stream ，也就是返回文件是“.*（ 二进制流，不知道下载文件类型）”
-#     没有扩展名，浏览器没法正常解读；看来这个锅应该要aiohttp来背
-#
-#content-type 是 octet-stream 表明他就是一个字节流，浏览器默认处理字节流的方式就是下载。
+问题:访问网址提示下载文件
+原因:不指定 content_type 的话，默认返回 application/octet-stream ，也就是返回文件是“.*（ 二进制流，不知道下载文件类型）”
+     没有扩展名，浏览器没法正常解读；看来这个锅应该要aiohttp来背
+
+content-type 是 octet-stream 表明他就是一个字节流，浏览器默认处理字节流的方式就是下载。
+'''
 
 def index(request):
     return web.Response(body=b'<h1>Awesome</h1>',content_type='text/html')
 
     
-   
-#@asyncio.coroutine
-#将以上换成如下，yield from换成了 await
-#这里的loop.create_server 和 之前的wsgiref.simple_server 中的make_server
-#loop.create_server利用asyncio创建TCP服务
-#make_server也是创建TCP服务
+'''   
+@asyncio.coroutine
+将以上换成如下，yield from换成了 await
+这里的loop.create_server 和 之前的wsgiref.simple_server 中的make_server
+loop.create_server利用asyncio创建TCP服务
+make_server也是创建TCP服务
 
-#感觉这里的服务相对TCP编程那节更上层了，TCP编程那节更基础，这里只是用来做HTTP相关的网络传输
-#而TCP是http的基础但比它更基础，可以做更多的事情不仅仅是http，还可以有其他的协议，只不过他们
-#都是比TCP更抽象
+感觉这里的服务相对TCP编程那节更上层了，TCP编程那节更基础，这里只是用来做HTTP相关的网络传输
+而TCP是http的基础但比它更基础，可以做更多的事情不仅仅是http，还可以有其他的协议，只不过他们
+都是比TCP更抽象
+'''
 async def init(loop):
     app = web.Application(loop=loop)
     #这就是我们有的时候面对巨大的代码
