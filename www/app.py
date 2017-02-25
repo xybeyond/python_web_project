@@ -23,6 +23,7 @@ from aiohttp import web
 from jinja2 import Environment, FileSystemLoader
 
 import orm
+import pdb
 from coroweb import add_routes, add_static
 
 '''
@@ -40,6 +41,9 @@ from coroweb import add_routes, add_static
     def index(request):
     return web.Response(body=b'<h1>Awesome</h1>',content_type='text/html')
 '''
+
+def index(request):
+    return web.Response(body=b'<h1>Awesome</h1>',content_type='text/html')
 
 def init_jinja2(app, **kw):
     logging.info('init jinja2...')
@@ -64,10 +68,12 @@ def init_jinja2(app, **kw):
     
 
 async def logger_factory(app, handler):
+    
     async def logger(request):
-        logging.info('Request: %s %s' % (request.method, resquest.path))
-        return (await handler(resquest))
-
+        #pdb.set_trace()
+        logging.info('Request: %s %s' %(request.method, request.path))
+        return await handler(request)
+    return logger
 
     
 
@@ -83,7 +89,7 @@ async def data_factory(app, handler):
         return (await handler(request))
     return parse_data
 
-
+#找了半天终于找到问题在哪了，擦竟然是缩进有问题导致程序无法按照正常的顺序运行造成的
 async def response_factory(app, handler):
     async def response(request):
         logging.info('Response handler...')
@@ -97,29 +103,31 @@ async def response_factory(app, handler):
         if isinstance(r, str):
             if r.startswith('redirect:'):
                 return web.HTTPFound(r[9:])
-        resp = web.Response(body=r.encode('utf-8'))
-        resp.content_type = 'text/html;charset=utf-8'
-        return resp
+            resp = web.Response(body=r.encode('utf-8'))
+            resp.content_type = 'text/html;charset=utf-8'
+            return resp
         if isinstance(r, dict):
             template = r.get('__template__')
             if template is None:
-                resp = web.response(body=json.dumps(r, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
+                esp = web.response(body=json.dumps(r, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
                 resp.content_type = 'application/json; charset=utf-8'
                 return resp
         else:
             resp = web.Response(body=app['__templating__'].get_template(template).render(**r).encode('utf-8'))
             resp.content_type = 'text/html;charset=utf-8'
             return resp
-    if isinstance(r, int) and r >= 100 and r < 600:
-        return web.Response(r)
-    if isinstance(r, tuple) and len(r) == 2:
-        t, m = r
-        if isinstance(t, int) and t >= 100 and t < 600:
-            return web.Response(t, str(m))
+         
+        if isinstance(r, int) and r >= 100 and r < 600:
+            return web.Response(r)
+        if isinstance(r, tuple) and len(r) == 2:
+            t, m = r
+            if isinstance(t, int) and t >= 100 and t < 600:
+                return web.Response(t, str(m))
     
-    resp = web.Response(body=str(r).encode('utf-8'))
-    resp.content_type = 'text/html;charset=utf-8'
-    return resp
+        resp = web.Response(body=str(r).encode('utf-8'))
+        resp.content_type = 'text/html;charset=utf-8'
+        return resp
+    return response
 
 def datetime_filter(t):
     delta = int(time.time() - t)
@@ -147,15 +155,15 @@ def datetime_filter(t):
 '''
 async def init(loop):
     await orm.create_pool(loop=loop, host='127.0.0.1', port= 3306, user='xiaoyuan', password='123654', db='awesome')
-    app = web.Application(loop=loop, middlewares=[
-        logger_factory, response_factory
-    ])
+    #app = web.Application(loop=loop,middlewares=[logger_factory])
+    app = web.Application(loop=loop, middlewares=[logger_factory,response_factory])
     #这就是我们有的时候面对巨大的代码
     #迫切想要找到的整体的框架
     #app.router.add_route('GET', '/', index)
     init_jinja2(app, filters=dict(datetime = datetime_filter))
     add_routes(app, 'handlers')
     add_static(app)
+    #app.router.add_route('GET', '/', index)
     srv = await loop.create_server(app.make_handler(), '127.0.0.1', 9000)
     logging.info('server started at http://127.0.0.1:9000...')
     return srv

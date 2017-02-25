@@ -3,7 +3,7 @@
 
 __author__ = 'xybeyond'
 
-import asyncio, inspect, logging, functools
+import asyncio, inspect, logging, functools,os
 
 from urllib import parse
 from aiohttp import web
@@ -43,7 +43,7 @@ def post(path):
 def get_required_kw_args(fn):
     args = []
     params = inspect.signature(fn).parameters
-    for name, param in param.items():
+    for name, param in params.items():
         if param.kind == inspect.Parameter.KEYWORD_ONLY and param.default == inspect.Parameter.empty:
             args.append(name)
     return tuple(args)
@@ -59,7 +59,6 @@ def get_named_kw_args(fn):
     
     
 def has_named_kw_args(fn):
-    args = []
     params = inspect.signature(fn).parameters
     for name, param in params.items():
         if param.kind == inspect.Parameter.KEYWORD_ONLY:
@@ -67,7 +66,6 @@ def has_named_kw_args(fn):
             
  
 def has_var_kw_arg(fn):
-    args = []
     params = inspect.signature(fn).parameters
     for name, param in params.items():
         if param.kind == inspect.Parameter.VAR_KEYWORD:
@@ -90,19 +88,22 @@ def  has_request_arg(fn):
 
 class RequestHandler(object):
 
-
+    #卧槽这个地方出错竟然影响到前面程序的执行
+    #之前一直提示middlewares中的handler 为None，找了半天没有知道原因
+    #然后我就用小程序排除掉直接代码的问题，然后一点一点将真的代码加上去
+    #看是在哪个地方出错，这样才真的看的错误所在
     def __init__(self, app, fn):
         self._app = app
         self._func = fn
-        self._has_request_args = has_request_arg(fn)
-        self._has_var_ke_arg = has_var_kw_arg(fn)
+        self._has_request_arg = has_request_arg(fn)
+        self._has_var_kw_arg = has_var_kw_arg(fn)
         self._has_named_kw_args = has_named_kw_args(fn)
-        self._has_kw_args = get_named_kw_args(fn)
+        self._named_kw_args = get_named_kw_args(fn)
         self._required_kw_args = get_required_kw_args(fn)
      
     async def __call__(self, request):
         kw = None
-        if self._has_var_ke_arg or self._has_named_kw_args or self._required_kw_args:
+        if self._has_var_kw_arg or self._has_named_kw_args or self._required_kw_args:
             if request.method == 'POST':
                 if not request.content_type:
                     return web.HTTPBadRequest('Missing Content-Type.')
@@ -117,12 +118,14 @@ class RequestHandler(object):
                     kw = dict(**params)
                 else:
                     return web.HTTPBadRequest('Unsuported Content-Type: %s' % request.content_type)
-                if request.method == 'GET':
-                    qs = request.query_string
-                    if qs:
-                        kw = dict()
-                        for k, v in parse.parse_qs(qs, True).items():
-                            kw[k]=v[0]
+            #长代码最有可能把一些缩进搞错从而导致看不出来的错误
+            if request.method == 'GET':
+                qs = request.query_string
+                if qs:
+                    kw = dict()
+                    for k, v in parse.parse_qs(qs, True).items():
+                        kw[k]=v[0]
+                logging.info("xybeyond enter get flow!!!!!!!!!!!!!")
         if kw is None:
             kw = dict(**request.match_info)
         else:
@@ -136,7 +139,7 @@ class RequestHandler(object):
                 if k in kw:
                     logging.warning('Duplicate arg name in named arg and kw args: %s' % k)
                 kw[k] = v
-        if self._has_request_args:
+        if self._has_request_arg:
             kw['request'] = request
         
         if self._required_kw_args:
@@ -178,7 +181,7 @@ def add_routes(app, module_name):
     else:
         name =module_name[n+1:]
         mod = getattr(__import__(module_name[:n], globals(), locals(), [name]), name)
-    for attr in dict(mod):
+    for attr in dir(mod):
         if attr.startswith('_'):
             continue
         fn = getattr(mod, attr)
