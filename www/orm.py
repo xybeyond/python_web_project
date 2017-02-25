@@ -85,6 +85,8 @@ async def select(sql, args, size=None):
  返回操作影响的行号 
 '''
 # 用于SQL的INSERT、INTO、UPDATE、DELETE语句，execute方法只返回结果数，不返回结果集
+#自动提交相关:http://www.cnblogs.com/langtianya/p/4777662.html
+#https://dev.mysql.com/doc/refman/5.7/en/commit.html
 async def execute(sql, args, autocommit=True):
     log(sql)
     #with函数调用进程池，调用with函数后自动调用关闭进程池函数
@@ -202,6 +204,7 @@ class ModelMetaclass(type):
         primaryKey = None
         # 遍历类的属性,找出定义的域(如StringField,字符串域)内的值,建立映射关系
         # key是属性名,val其实是定义域!请看name=StringField(ddl="varchar50")
+        #name 是key StringField 对应的值
         for k, v in attrs.items():
             #判断val是否属于Field属性类
             if isinstance(v, Field):
