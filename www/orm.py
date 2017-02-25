@@ -97,10 +97,11 @@ def create_args_string(num):
 class Field(object):
 
     #表的字段包含名字、类型、是否为表的主键和默认值
-    def __init__(self, name, column_type, primay_key, default):
+    #拼写一个单词错误是多么的要命啊
+    def __init__(self, name, column_type, primary_key, default):
         self.name = name
         self.column_type = column_type
-        self.primay_key = primay_key
+        self.primary_key = primary_key
         self.default = default
 
     #当打印(数据库)表时，输出(数据库)表的信息:类名，字段类型和名字
@@ -111,26 +112,26 @@ class Field(object):
 # -*- 定义不同类型的衍生Field -*-
 class StringField(Field):
 
-    def __init__(self, name=None, primay_key=False, default=None, ddl='varchar(100)'):
-        super().__init__(name, ddl, primay_key, default)
+    def __init__(self, name=None, primary_key=False, default=None, ddl='varchar(100)'):
+        super().__init__(name, ddl, primary_key, default)
        
 
 class BooleanField(Field):
 
-    def __init__(self, name=None, primay_key=False, default=False):
-        super().__init__(name, 'boolean', primay_key, default)
+    def __init__(self, name=None, primary_key=False, default=False):
+        super().__init__(name, 'boolean', primary_key, default)
         
 
 class IntegerField(Field):
 
-    def __init__(self, name=None, primay_key=False, default=0):
-        super().__init__(name, 'Bigint', primay_key, default)
+    def __init__(self, name=None, primary_key=False, default=0):
+        super().__init__(name, 'Bigint', primary_key, default)
 
 
 class FloatField(Field):
 
-    def __init__(self, name=None, primay_key=False, default=0.0):
-        super().__init__(name, 'real', primay_key, default)        
+    def __init__(self, name=None, primary_key=False, default=0.0):
+        super().__init__(name, 'real', primary_key, default)        
            
     
 
@@ -170,23 +171,23 @@ class ModelMetaclass(type):
         #获取Field和主键名
         mappings = dict()
         fields = []
-        primayKey = None
+        primaryKey = None
         for k, v in attrs.items():
             #Field 属性
             if isinstance(v, Field):
                 #此处打印的k是类的一个属性，v是这个属性在数据库中对应的Field列表属性
                 logging.info(' found mapping:  %s ==> %s' % (k, v))
-                mapping[k] = v
+                mappings[k] = v
                 #找到主键
-                if v.primay_key:
+                if v.primary_key:
                     #主键已存在
-                    if primayKey:
+                    if primaryKey:
                         raise StandardError('Duplicate primay key for field: %s' % k)
                     #将此列设为列表主键
-                    primayKey = k
+                    primaryKey = k
                 else:
                     fields.append(k)
-        if not primayKey:
+        if not primaryKey:
             raise StandardError('Primary key not found')
         #从类属性中删除Field属性
         for k in mappings.keys():
@@ -198,7 +199,7 @@ class ModelMetaclass(type):
         #保存表名
         attrs['__table__'] = tableName
         #保存主键属性名
-        attrs['__primary_key__'] = primayKey
+        attrs['__primary_key__'] = primaryKey
         #保存除主键外的属性名
         attrs['__fields__'] = fields
         #构造默认的操作语句
@@ -210,10 +211,10 @@ class ModelMetaclass(type):
         #关于__repr__见 定制类那一节
         #Mysql 也有关于反引号的用法：
         #为了区分MySQL的保留字与普通字符而引入的符号。
-        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primayKey, ', '.join(escaped_fields), tableName)
-        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (tableName, ', '.join(escaped_fields), primayKey, create_args_string(len(escaped_fields) + 1))
-        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primayKey)
-        attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primayKey)
+        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primaryKey, ', '.join(escaped_fields), tableName)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (tableName, ', '.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
+        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primaryKey)
+        attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
         return type.__new__(cls, name, bases, attrs)
  
 '''
@@ -304,7 +305,7 @@ class Model(dict, metaclass=ModelMetaclass):
      
     @classmethod
     async def find(cls, pk):
-        'find object by primayKey'
+        'find object by primaryKey'
         rs = await select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
         if len(rs) == 0:
             return None
