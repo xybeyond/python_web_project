@@ -3,7 +3,7 @@
 
 __author__ = 'xybeyond'
 
-import asyncio, logging
+import asyncio, logging; logging.basicConfig(level=logging.INFO)
 
 import aiomysql
 
@@ -17,6 +17,9 @@ def log(sql, args=()):
 （2）自动类型转换；
 （3）有更好的性能（对于Oracle数据库效果明显，MySQL则不一定）；
 （4）避免在拼接sql语句时过多的使用引号和字符串连接符等，代码更加简洁
+详细解释可参考 http://www.songluyi.com/python-%E7%BC%96%E5%86%99orm%E6%97%B6%E7%9A%84%E9%87%8D%E9%9A%BE%E7%82%B9%E6%8E%8C%E6%8F%A1/
+aiomysql文档见：https://aiomysql.readthedocs.io/en/latest/pool.html
+详细说明见：https://github.com/WalleSun415/awesome-python3-webapp/blob/day-04/orm.py
 '''    
 async def create_pool(loop, **kw):
     logging.info('create database  connection pool...')
@@ -30,7 +33,11 @@ async def create_pool(loop, **kw):
         user=kw['user'],
         password=kw['password'],
         db=kw['db'],
-        charset=kw.get('charset', 'utf-8'),
+        #联调时一直出现如下错误    
+        #self._encoding = charset_by_name(self._charset).encoding
+        #AttributeError: 'NoneType' object has no attribute 'encoding'
+        #原因竟然是把这里的utf8 写成了utf-8,卧槽！！
+        charset=kw.get('charset', 'utf8'),
         autocommit=kw.get('autocommit', True),
         #默认最大连接数
         maxsize=kw.get('maxsize', 10),
@@ -82,6 +89,9 @@ async def execute(sql, args, autocommit=True):
             if not autocommit:
                 await conn.rollback()
             raise
+        finally:
+            #需要在这里加这句话，否则联调时会报错，但是既然已经使用with as语法了为什么还需要在这里关闭那？
+            conn.close()
         return affected
  
 #根据输入的参数生成占位符列表
@@ -110,6 +120,7 @@ class Field(object):
         return '<%s, %s:%s>' % (self.__class__.__name__, self.column_type, self.name)
             
 # -*- 定义不同类型的衍生Field -*-
+#String一般不作为主键，所以默认False, DDL是数据定义语言，为了配合mysql，所以默认设定为100的长度
 class StringField(Field):
 
     def __init__(self, name=None, primary_key=False, default=None, ddl='varchar(100)'):
@@ -262,6 +273,8 @@ class Model(dict, metaclass=ModelMetaclass):
      
     @classmethod
     #类方法有类变量cls传入，从而可以用cls做一些相关的处理。并且有子类继承时，调用该类方法时，传入的类变量cls是子类，而非父类
+    # 对于查询相关的操作,我们都定义为类方法,就可以方便查询,而不必先创建实例再查询
+    # 查找所有合乎条件的信息
     #注意sql语句的组装方式，与下面的相比较
     async def findAll(cls, where=None, args=None,  **kw):
         'find objects by where clause'

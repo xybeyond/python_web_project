@@ -21,7 +21,9 @@ def next_id():
     
 
 class User(Model):
-    __table__ = 'user'
+    #这里与sql脚本似乎不一样，有没有影响
+    #这里应该跟数据库中的表名一致，否则会报错
+    __table__ = 'users'
     
     id = StringField(primary_key=True, default=next_id, ddl='varchar(50)')
     email = StringField(ddl='varchar(50)')
