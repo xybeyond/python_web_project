@@ -20,11 +20,19 @@ def log(sql, args=()):
 详细解释可参考 http://www.songluyi.com/python-%E7%BC%96%E5%86%99orm%E6%97%B6%E7%9A%84%E9%87%8D%E9%9A%BE%E7%82%B9%E6%8E%8C%E6%8F%A1/
 aiomysql文档见：https://aiomysql.readthedocs.io/en/latest/pool.html
 详细说明见：https://github.com/WalleSun415/awesome-python3-webapp/blob/day-04/orm.py
-'''    
+'''
+async def destroy_pool(): #销毁连接池
+    global __pool
+    if __pool is not None:
+        __pool.close()
+        await  __pool.wait_closed()
+
+ 
 async def create_pool(loop, **kw):
     logging.info('create database  connection pool...')
     #全局变量__pool用于存储整个连接池
     global __pool
+    # __xx表示不是一定不能访问，只是python解释器对外把__xx改成_class__name,所以仍可以通过其访问__xx
     __pool = await aiomysql.create_pool(
         #**kw参数可以包含所有连接需要用到的关键字参数
         #默认本机IP
@@ -42,7 +50,7 @@ async def create_pool(loop, **kw):
         #默认最大连接数
         maxsize=kw.get('maxsize', 10),
         minsize=kw.get('minsize', 1),
-        loop=loop
+        loop=loop # 传递消息循环对象loop用于异步执行
         
     )
     
@@ -51,11 +59,14 @@ async def create_pool(loop, **kw):
 '''  
 
 #封装 SQL select语句为select函数
+#作用于SQL的SELECT语句，对应select语句，传入sql语句和参数
 async def select(sql, args, size=None):
     log(sql, args)
     global __pool
+    #异步等待连接池对象返回可以连接的线程，with语句则封装了关闭conn和处理异常的工作
     async with __pool.get() as conn:
         #DictCursor is a cursor which returns results as a dictionary
+        #等待连接对象返回DictCursor,可以通过dict的方式获取数据库对象，需要通过游标对象执行SQL
         async with conn.cursor(aiomysql.DictCursor) as cur:
             #执行SQL语句
             #SQL语句的占位符为?，MySQL的占位符为%s
@@ -73,25 +84,27 @@ async def select(sql, args, size=None):
  语句操作参数一样，所以定义一个通用的执行函数
  返回操作影响的行号 
 '''
-
+# 用于SQL的INSERT、INTO、UPDATE、DELETE语句，execute方法只返回结果数，不返回结果集
 async def execute(sql, args, autocommit=True):
     log(sql)
+    #with函数调用进程池，调用with函数后自动调用关闭进程池函数
     async with __pool.get() as conn:
-        if not autocommit:
+        if not autocommit: #若数据库的事务为非自动提交的，则调用协程启动连接
             await conn.begin()
         try:
+            #打开一个DictCursor,他与普通游标不同之处在于，以dict形式返回结果
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(sql.replace('?', '%s'), args)
                 affected = cur.rowcount
-            if not autocommit:
+            if not autocommit:  #出错，回滚事务到增删改之前
                 await conn.commit()
         except BaseException as e:
             if not autocommit:
                 await conn.rollback()
             raise
-        finally:
-            #需要在这里加这句话，否则联调时会报错，但是既然已经使用with as语法了为什么还需要在这里关闭那？
-            conn.close()
+        #finally:
+        #需要在这里加这句话，否则联调时会报错，但是既然已经使用with as语法了为什么还需要在这里关闭那？
+        #conn.close() 有了另外一个函数，此函数可以注释掉
         return affected
  
 #根据输入的参数生成占位符列表
@@ -163,31 +176,38 @@ ModelMetaclass的工作主要是为一个数据库表映射成一个封装的类
 完成这些工作就可以在Model中定义各种数据库的操作方法  
 
 元类可以参考:http://blog.jobbole.com/21351/
+
+这是一个元类,它定义了如何来构造一个类,任何定义了__metaclass__属性或指定了metaclass的都会通过元类定义的构造方法构造类
+任何继承自Model的类,都会自动通过ModelMetaclass扫描映射关系,并存储到自身的类属性
 '''
 class ModelMetaclass(type):
     
     #__new__在__init__之前执行
     #cls:代表代表要__init__的类，此参数在实例化时由Python解释器自动提供(例如下文的User和Model)
     #bases：代表继承父类的集合
-    #attrs：类的方法集合
+    #attrs：属性(方法)的字典,比如User有__table__,id,等,就作为attrs的keys
     def __new__(cls, name, bases, attrs):
-        #排除Model
+        #排除Model类本身,因为Model类主要就是用来被继承的,其不存在与数据库表的映射
         if name== 'Model':
             return type.__new__(cls, name, bases, attrs)
             
-        #获取table名字
+        #获取table名字,找到表名，若没有定义__table__属性,将类名作为表名
         tableName = attrs.get('__table__', None) or name
         logging.info(' found model:  %s (table: %s)' % (name, tableName))
         
         #获取Field和主键名
+        #保存映射关系
         mappings = dict()
         fields = []
         primaryKey = None
+        # 遍历类的属性,找出定义的域(如StringField,字符串域)内的值,建立映射关系
+        # key是属性名,val其实是定义域!请看name=StringField(ddl="varchar50")
         for k, v in attrs.items():
-            #Field 属性
+            #判断val是否属于Field属性类
             if isinstance(v, Field):
                 #此处打印的k是类的一个属性，v是这个属性在数据库中对应的Field列表属性
                 logging.info(' found mapping:  %s ==> %s' % (k, v))
+                #把Field属性类保存在映射映射关系表，并从原属性列表中删除
                 mappings[k] = v
                 #找到主键
                 if v.primary_key:
@@ -204,6 +224,7 @@ class ModelMetaclass(type):
         for k in mappings.keys():
             attrs.pop(k)
         #保存除主键外的属性名为··列表形式
+        #将非主键的属性名都保存到escaped_fields
         escaped_fields = list(map(lambda f: '`%s`' % f, fields))
         #保存属性和列的映射关系
         attrs['__mappings__'] = mappings
@@ -239,20 +260,23 @@ Model从dict继承，拥有字典的所有功能，同时实现特殊方法__get
 实现数据库操作的所有方法，定义为class方法，所有继承自Model都具有数据库操作方法
  
 '''
+# ORM映射基类,继承自dict,通过ModelMetaclass元类来构造类
 class Model(dict, metaclass=ModelMetaclass):
     
-    
+    # 初始化函数,调用其父类(dict)的方法
     def __init__(self, **kw):
         super(Model, self).__init__(**kw)
     
-    
+    # 增加__getattr__方法，使获取属性更加简单,即可通过"a.b"的形式
+    # 动态调用不存在的属性key时,将会调用__getattr__(self,'attr')来尝试获得属性
+    # 例如b属性不存在，当调用a.b时python会试图调用__getattr__(self,'b')来获得属性，在这里返回的是dict a[b]对应的值    
     def __getattr__(self, key):
         try:
             return self[key]
         except KeyError:
             raise AttributeError(r"'Model' object has no attribute '%s'" %key)
     
-    
+    # 增加__setattr__方法,使设置属性更方便,可通过"a.b=c"的形式
     def __setattr__(self, key, value):
         self[key] = value
     
@@ -278,16 +302,20 @@ class Model(dict, metaclass=ModelMetaclass):
     #注意sql语句的组装方式，与下面的相比较
     async def findAll(cls, where=None, args=None,  **kw):
         'find objects by where clause'
+         #初始化SQL语句和参数列表
         sql = [cls.__select__]
+        # WHERE查找条件的关键字
         if where:
             sql.append('where')
             sql.append(where)
-        if agrs is None:
+        # ORDER BY是排序的关键字    
+        if args is None:
             args = []
         orderBy = kw.get('orderBy', None)
         if orderBy:
             sql.append('order by')
             sql.append(orderBy)
+        # LIMIT 是筛选结果集的关键字
         limit = kw.get('limit', None)
         if limit is not None:
             sql.append('limit')
@@ -299,10 +327,12 @@ class Model(dict, metaclass=ModelMetaclass):
                 args.extend(limit)
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
-        rs = await select(' '.join(sql), args)
-        return [cls(**r) for r in rs]
+        rs = await select(' '.join(sql), args)# 调用前面定义的select函数，没有指定size,因此会fetchall
+        return [cls(**r) for r in rs]# 返回结果，结果是list对象，里面的元素是dict类型的
         
+        # 根据列名和条件查看数据库有多少条信息
     
+        
     @classmethod
     async def findNumber(cls, selectField, where=None, args=None):
         'find number by select and where'
