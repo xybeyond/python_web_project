@@ -37,7 +37,7 @@ def merge(defaults, override):
 def toDict(d):
     D = Dict()
     for k, v in d.items():
-        D[k] = toDict(v) isinstance(v, dict) else v
+        D[k] = toDict(v) if isinstance(v, dict) else v
     return D
 
     
@@ -49,4 +49,4 @@ try:
 except ImportError:
     pass
     
-config = toDict(configs)
+configs = toDict(configs)
