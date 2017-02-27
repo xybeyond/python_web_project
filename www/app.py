@@ -22,10 +22,13 @@ from datetime import datetime
 from aiohttp import web
 from jinja2 import Environment, FileSystemLoader
 
+from config import configs
+
 import orm
 import pdb
 from coroweb import add_routes, add_static
 
+from handlers import cookie2user, COOKIE_NAME
 '''
     url处理函数，通过下面的add_route方法与服务器代码相连
     Response函数的body参数对应网页的代码
@@ -75,6 +78,24 @@ async def logger_factory(app, handler):
         return await handler(request)
     return logger
 
+#出现过多次缩进搞错，在这里应该出现NoneType 错误大概都是因为需要返回一个函数可以没有返回
+#或者出现中间件相关的问题，大概也是因为缩进或者返回的原因
+async def auth_factory(app, handler):
+    async def auth(request):
+        logging.info('check user: %s %s' %(request.method, request.path))
+        request.__user__ = None
+        cookie_str = request.cookies.get(COOKIE_NAME)
+        if cookie_str:
+            user = await cookie2user(cookie_str)
+            if user:
+                logging.info('set current user: %s' % user.email)
+                request.__user__ = user
+        if request.path.startswith('/manage/') and (request.__user__ is None or not request.__user__.admin):
+            return web.HTTPFound('/signin')
+        return await handler(request)
+    return auth
+        
+
     
 
 async def data_factory(app, handler):
@@ -113,10 +134,11 @@ async def response_factory(app, handler):
                 resp.content_type = 'application/json; charset=utf-8'
                 return resp
             else:
+                r['__user__'] = request.__user__
                 resp = web.Response(body=app['__templating__'].get_template(template).render(**r).encode('utf-8'))
                 resp.content_type = 'text/html;charset=utf-8'
                 return resp
-         
+        #这里将t写成r会出现什么样的后果？
         if isinstance(r, int) and r >= 100 and r < 600:
             return web.Response(r)
         if isinstance(r, tuple) and len(r) == 2:
@@ -125,7 +147,7 @@ async def response_factory(app, handler):
                 return web.Response(t, str(m))
     
         resp = web.Response(body=str(r).encode('utf-8'))
-        resp.content_type = 'text/html;charset=utf-8'
+        resp.content_type = 'text/plain;charset=utf-8'
         return resp
     return response
 
@@ -139,7 +161,7 @@ def datetime_filter(t):
         return u'%s小时前' %( delta // 3600)
     if delta < 604800:
         return u'%s天前' % (delta // 86400)
-    dt = datetime.formtimestamp(t)
+    dt = datetime.fromtimestamp(t)
     return u'%s年%s月%s日' % (dt.year, dt.month, dt.day)
     
 '''   
@@ -154,9 +176,10 @@ def datetime_filter(t):
     都是比TCP更抽象
 '''
 async def init(loop):
-    await orm.create_pool(loop=loop, host='127.0.0.1', port= 3306, user='xiaoyuan', password='123654', db='awesome')
+    await orm.create_pool(loop=loop, **configs.db)
+    #await orm.create_pool(loop=loop, host='127.0.0.1', port= 3306, user='xiaoyuan', password='123654', db='awesome')
     #app = web.Application(loop=loop,middlewares=[logger_factory])
-    app = web.Application(loop=loop, middlewares=[logger_factory,response_factory])
+    app = web.Application(loop=loop, middlewares=[logger_factory,auth_factory,response_factory])
     #这就是我们有的时候面对巨大的代码
     #迫切想要找到的整体的框架
     #app.router.add_route('GET', '/', index)

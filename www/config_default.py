@@ -4,7 +4,7 @@ configs = {
         'port': 3306,
         'user': 'xiaoyuan',
         'password': '123654',
-        'database': 'awesome'
+        'db': 'awesome'
     },
     'session': {
         'secret': 'Awesome'

@@ -17,8 +17,7 @@ from apis import Page, APIValueError, APIResourceNotFoundError
 from models import User, Comment, Blog, next_id
 from config import configs
 
-
-COOKIE_NAME = 'xybeyondsession'
+COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs.session.secret
 
 def check_admin(request):
@@ -37,7 +36,7 @@ def get_page_index(page_str):
 
 def user2cookie(user, max_age):
     '''
-        构造cookies字符串：id-expires-sha1
+    Generate cookie str by user.
     '''
     # build cookie string by: id-expires-sha1
     expires = str(int(time.time() + max_age))
@@ -48,9 +47,11 @@ def user2cookie(user, max_age):
 def text2html(text):
     lines = map(lambda s: '<p>%s</p>' % s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'), filter(lambda s: s.strip() != '', text.split('\n')))
     return ''.join(lines)
-async def cookie2user(cookie_str):
+
+@asyncio.coroutine
+def cookie2user(cookie_str):
     '''
-    解析cookie ，如果合法，传输用户相关信息
+    Parse cookie and load user if cookie is valid.
     '''
     if not cookie_str:
         return None
@@ -61,38 +62,38 @@ async def cookie2user(cookie_str):
         uid, expires, sha1 = L
         if int(expires) < time.time():
             return None
-        user = await User.find(uid)
+        user = yield from User.find(uid)
         if user is None:
             return None
         s = '%s-%s-%s-%s' % (uid, user.passwd, expires, _COOKIE_KEY)
         if sha1 != hashlib.sha1(s.encode('utf-8')).hexdigest():
-            logging.info('invaild sha1')
+            logging.info('invalid sha1')
             return None
         user.passwd = '******'
         return user
     except Exception as e:
         logging.exception(e)
         return None
- 
+
 @get('/')
-async def index(*, page='1'):
+def index(*, page='1'):
     page_index = get_page_index(page)
-    num = await Blog.findNumber('count(id)')
+    num = yield from Blog.findNumber('count(id)')
     page = Page(num)
     if num == 0:
         blogs = []
     else:
-        blogs = await Blog.findAll(orderBy='created_at desc', limit=(page.offset, page.limit))
+        blogs = yield from Blog.findAll(orderBy='created_at desc', limit=(page.offset, page.limit))
     return {
         '__template__': 'blogs.html',
         'page': page,
         'blogs': blogs
     }
-#注册函数 
+
 @get('/blog/{id}')
-async def get_blog(id):
-    blog = await Blog.find(id)
-    comments = await Comment.findAll('blog_id=?', [id], orderBy='created_at desc')
+def get_blog(id):
+    blog = yield from Blog.find(id)
+    comments = yield from Comment.findAll('blog_id=?', [id], orderBy='created_at desc')
     for c in comments:
         c.html_content = text2html(c.content)
     blog.html_content = markdown2.markdown(blog.content)
@@ -101,45 +102,29 @@ async def get_blog(id):
         'blog': blog,
         'comments': comments
     }
+
 @get('/register')
 def register():
     return {
         '__template__': 'register.html'
-    } 
+    }
 
-#登陆函数    
 @get('/signin')
 def signin():
     return {
         '__template__': 'signin.html'
     }
-	
-'''
-@get('/')
-async def index(request):
-    summary = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
-    blogs = [
-        Blog(id='1', name='Test Blog', summary=summary, created_at=time.time()-120),
-        Blog(id='2', name='Something New', summary=summary, created_at=time.time()-3600),
-        Blog(id='3', name='Learn Swift', summary=summary, created_at=time.time()-7200)
-    ]
-    return {
-        '__template__': 'blogs.html',
-        'blogs': blogs
-    }
-'''	
 
 @post('/api/authenticate')
-async def authenticate(*, email, passwd):
+def authenticate(*, email, passwd):
     if not email:
         raise APIValueError('email', 'Invalid email.')
     if not passwd:
         raise APIValueError('passwd', 'Invalid password.')
-    users = await User.findAll('email=?', [email])
+    users = yield from User.findAll('email=?', [email])
     if len(users) == 0:
         raise APIValueError('email', 'Email not exist.')
     user = users[0]
-    logging.info(user.name)
     # check passwd:
     sha1 = hashlib.sha1()
     sha1.update(user.id.encode('utf-8'))
@@ -153,10 +138,8 @@ async def authenticate(*, email, passwd):
     user.passwd = '******'
     r.content_type = 'application/json'
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
-    logging.info(type(r))
     return r
 
-  
 @get('/signout')
 def signout(request):
     referer = request.headers.get('Referer')
@@ -168,18 +151,21 @@ def signout(request):
 @get('/manage/')
 def manage():
     return 'redirect:/manage/comments'
+
 @get('/manage/comments')
 def manage_comments(*, page='1'):
     return {
         '__template__': 'manage_comments.html',
         'page_index': get_page_index(page)
     }
+
 @get('/manage/blogs')
 def manage_blogs(*, page='1'):
     return {
         '__template__': 'manage_blogs.html',
         'page_index': get_page_index(page)
     }
+
 @get('/manage/blogs/create')
 def manage_create_blog():
     return {
@@ -187,6 +173,7 @@ def manage_create_blog():
         'id': '',
         'action': '/api/blogs'
     }
+
 @get('/manage/blogs/edit')
 def manage_edit_blog(*, id):
     return {
@@ -194,6 +181,7 @@ def manage_edit_blog(*, id):
         'id': id,
         'action': '/api/blogs/%s' % id
     }
+
 @get('/manage/users')
 def manage_users(*, page='1'):
     return {
@@ -250,24 +238,23 @@ _RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$'
 _RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
 
 @post('/api/users')
-async def api_register_user(*, email, name, passwd):
-    logging.info('enter api_register_user.....%s,%s,%s' %(name,email,passwd)) 
+def api_register_user(*, email, name, passwd):
     if not name or not name.strip():
         raise APIValueError('name')
     if not email or not _RE_EMAIL.match(email):
         raise APIValueError('email')
     if not passwd or not _RE_SHA1.match(passwd):
         raise APIValueError('passwd')
-    users = await User.findAll('email=?', [email])
-    logging.info(users)
+    users = yield from User.findAll('email=?', [email])
     if len(users) > 0:
-        raise APIValueError('register:faild', 'email','Email is already in use')
+        raise APIError('register:failed', 'email', 'Email is already in use.')
     uid = next_id()
     sha1_passwd = '%s:%s' % (uid, passwd)
     user = User(id=uid, name=name.strip(), email=email, passwd=hashlib.sha1(sha1_passwd.encode('utf-8')).hexdigest(), image='http://www.gravatar.com/avatar/%s?d=mm&s=120' % hashlib.md5(email.encode('utf-8')).hexdigest())
-    await user.save()
+    yield from user.save()
+    # make session cookie:
     r = web.Response()
-    r.set_cookie(COOKIE_NAME, user2cookie(user, 86400), max_age=86400,httponly=True)
+    r.set_cookie(COOKIE_NAME, user2cookie(user, 86400), max_age=86400, httponly=True)
     user.passwd = '******'
     r.content_type = 'application/json'
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
@@ -284,13 +271,12 @@ def api_blogs(*, page='1'):
     return dict(page=p, blogs=blogs)
 
 @get('/api/blogs/{id}')
-async def api_get_blog(*, id):
-    blog = await Blog.find(id)
-    return blog    
-    
-    
+def api_get_blog(*, id):
+    blog = yield from Blog.find(id)
+    return blog
+
 @post('/api/blogs')
-async def api_create_blog(request, *, name, summary, content):
+def api_create_blog(request, *, name, summary, content):
     check_admin(request)
     if not name or not name.strip():
         raise APIValueError('name', 'name cannot be empty.')
@@ -299,7 +285,7 @@ async def api_create_blog(request, *, name, summary, content):
     if not content or not content.strip():
         raise APIValueError('content', 'content cannot be empty.')
     blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name, user_image=request.__user__.image, name=name.strip(), summary=summary.strip(), content=content.strip())
-    await blog.save()
+    yield from blog.save()
     return blog
 
 @post('/api/blogs/{id}')

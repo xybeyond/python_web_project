@@ -89,15 +89,20 @@ async def select(sql, args, size=None):
 #https://dev.mysql.com/doc/refman/5.7/en/commit.html
 async def execute(sql, args, autocommit=True):
     log(sql)
+    
+    affected = 0
     #with函数调用进程池，调用with函数后自动调用关闭进程池函数
     async with __pool.get() as conn:
+        
         if not autocommit: #若数据库的事务为非自动提交的，则调用协程启动连接
             await conn.begin()
         try:
             #打开一个DictCursor,他与普通游标不同之处在于，以dict形式返回结果
             async with conn.cursor(aiomysql.DictCursor) as cur:
+                logging.info(sql.replace('?', '%s')+str(args))
                 await cur.execute(sql.replace('?', '%s'), args)
                 affected = cur.rowcount
+                
             if not autocommit:  #出错，回滚事务到增删改之前
                 await conn.commit()
         except BaseException as e:
@@ -107,6 +112,7 @@ async def execute(sql, args, autocommit=True):
         #finally:
         #需要在这里加这句话，否则联调时会报错，但是既然已经使用with as语法了为什么还需要在这里关闭那？
         #conn.close() 有了另外一个函数，此函数可以注释掉
+        logging.error('row returne: %s' % affected)
         return affected
  
 #根据输入的参数生成占位符列表
@@ -221,7 +227,7 @@ class ModelMetaclass(type):
                     primaryKey = k
                 else:
                     fields.append(k)
-        if not primaryKey:
+        if not primaryKey: 
             raise StandardError('Primary key not found')
         #从类属性中删除Field属性
         for k in mappings.keys():
@@ -275,6 +281,7 @@ class Model(dict, metaclass=ModelMetaclass):
     # 例如b属性不存在，当调用a.b时python会试图调用__getattr__(self,'b')来获得属性，在这里返回的是dict a[b]对应的值    
     def __getattr__(self, key):
         try:
+            #logging.info('__getattr__'+key)
             return self[key]
         except KeyError:
             raise AttributeError(r"'Model' object has no attribute '%s'" %key)
@@ -287,13 +294,14 @@ class Model(dict, metaclass=ModelMetaclass):
         #内建函数getattr会自动处理
         return getattr(self, key, None)
         
-    def getValuOrDefault(self, key):
+    def getValueOrDefault(self, key):
         value = getattr(self, key, None)
+        logging.info("####getValueOrDefault####" + str(value))
         if value is None:
             field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
-                logging.debug('using default value for %s: %s' % (key, str(value)))
+                logging.info('using default value for %s: %s' % (key, str(value)))
                 setattr(self, key, value)
         return value
         
@@ -360,8 +368,11 @@ class Model(dict, metaclass=ModelMetaclass):
     #注意后面连续三个是直接调用self.__insert__ 这样的形式调用的
     #而上面的却不是这样
     async def save(self):
-        args = list(map(self.getValuOrDefault, self.__fields__))
-        args.append(self.getValuOrDefault(self.__primary_key__))
+        args = list(map(self.getValueOrDefault, self.__fields__))
+        args.append(self.getValueOrDefault(self.__primary_key__))
+        #logging.info(type(tid))
+        #args.append(12345678901234567890)
+        logging.info(args)
         rows = await execute(self.__insert__, args)
         if rows != 1:
             logging.warn('failed to insert record: affected rows: %s' % rows)

@@ -7,7 +7,7 @@ import asyncio, inspect, logging, functools,os
 
 from urllib import parse
 from aiohttp import web
-
+from apis import APIError
 #这个地方也是在改变方法内部的行为
 #什么都是对象，这也是一种方法咯？
 def get(path):
@@ -102,6 +102,7 @@ class RequestHandler(object):
         self._required_kw_args = get_required_kw_args(fn)
      
     async def __call__(self, request):
+        logging.info("xybeyond enter get flow!!!!!!!!!!!!!")
         kw = None
         if self._has_var_kw_arg or self._has_named_kw_args or self._required_kw_args:
             if request.method == 'POST':
@@ -125,7 +126,7 @@ class RequestHandler(object):
                     kw = dict()
                     for k, v in parse.parse_qs(qs, True).items():
                         kw[k]=v[0]
-                logging.info("xybeyond enter get flow!!!!!!!!!!!!!")
+               
         if kw is None:
             kw = dict(**request.match_info)
         else:
@@ -151,7 +152,9 @@ class RequestHandler(object):
             r = await self._func(**kw)
             return r
         except APIError as e:
-            return dict(error=e.error, data=e.data, message=e.message)
+            d = dict(error=e.error, data=e.data, message=e.message)
+            logging.info(d)
+            return d
             
             
             
